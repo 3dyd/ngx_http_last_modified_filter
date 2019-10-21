@@ -141,12 +141,6 @@ ngx_http_last_modified_header_filter(ngx_http_request_t *r)
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    if (!of.is_file) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                      "last_modified: \"%V\" is not a file", &path);
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
     if (r->headers_out.last_modified_time < of.mtime) {
         r->headers_out.last_modified_time = of.mtime;
 
