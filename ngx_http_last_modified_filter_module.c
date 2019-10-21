@@ -108,10 +108,12 @@ ngx_http_last_modified_header_filter(ngx_http_request_t *r)
     *last = 0;
 
     ngx_memzero(&of, sizeof(ngx_open_file_info_t));
+
     of.read_ahead = clcf->read_ahead;
     of.directio = clcf->directio;
     of.valid = clcf->open_file_cache_valid;
     of.min_uses = clcf->open_file_cache_min_uses;
+    of.test_only = 1;
     of.errors = clcf->open_file_cache_errors;
     of.events = clcf->open_file_cache_events;
 
