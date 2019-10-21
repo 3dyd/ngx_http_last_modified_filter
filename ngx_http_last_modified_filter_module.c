@@ -2,15 +2,19 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+
 static ngx_int_t ngx_http_last_modified_filter_init(ngx_conf_t *cf);
 static void *ngx_http_last_modified_filter_create_loc_conf(ngx_conf_t *cf);
-static char *ngx_http_last_modified_filter_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
+static char *ngx_http_last_modified_filter_merge_loc_conf(ngx_conf_t *cf,
+    void *parent, void *child);
+
 
 typedef struct {
     ngx_flag_t enable;
     ngx_http_complex_value_t *source;
     ngx_flag_t clear_etag;
 } ngx_http_last_modified_loc_conf_t;
+
 
 static ngx_command_t ngx_http_last_modified_commands[] = {
     { ngx_string("last_modified_override"),
@@ -37,40 +41,47 @@ static ngx_command_t ngx_http_last_modified_commands[] = {
       ngx_null_command
 };
 
+
 static ngx_http_module_t ngx_http_last_modified_filter_module_ctx = {
-    NULL,         /* preconfiguration */
-    ngx_http_last_modified_filter_init,     /* postconfiguration */
+    NULL,                                /* preconfiguration */
+    ngx_http_last_modified_filter_init,  /* postconfiguration */
 
-    NULL,         /* create main configuration */
-    NULL,         /* init main configuration */
+    NULL,                                /* create main configuration */
+    NULL,                                /* init main configuration */
 
-    NULL,         /* create server configuration */
-    NULL,        /* merge server configuration */
+    NULL,                                /* create server configuration */
+    NULL,                                /* merge server configuration */
 
-    ngx_http_last_modified_filter_create_loc_conf,          /* create location configuration */
-    ngx_http_last_modified_filter_merge_loc_conf            /* merge location configuration */
+    /* create location configuration */
+    ngx_http_last_modified_filter_create_loc_conf,
+    /* merge location configuration */
+    ngx_http_last_modified_filter_merge_loc_conf
 };
+
 
 ngx_module_t ngx_http_last_modified_filter_module = {
     NGX_MODULE_V1,
     &ngx_http_last_modified_filter_module_ctx, /* module context */
-    ngx_http_last_modified_commands,   /* module directives */
-    NGX_HTTP_MODULE,               /* module type */
-    NULL,                          /* init master */
-    NULL,                          /* init module */
-    NULL,                          /* init process */
-    NULL,                          /* init thread */
-    NULL,                          /* exit thread */
-    NULL,                          /* exit process */
-    NULL,                          /* exit master */
+    ngx_http_last_modified_commands,     /* module directives */
+    NGX_HTTP_MODULE,                     /* module type */
+    NULL,                                /* init master */
+    NULL,                                /* init module */
+    NULL,                                /* init process */
+    NULL,                                /* init thread */
+    NULL,                                /* exit thread */
+    NULL,                                /* exit process */
+    NULL,                                /* exit master */
     NGX_MODULE_V1_PADDING
 };
 
+
 static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
+
 
 static ngx_int_t
 ngx_http_last_modified_header_filter(ngx_http_request_t *r)
 {
+    off_t                               size;
     u_char                             *last;
     ngx_str_t                           uri, path;
     ngx_open_file_info_t                of;
@@ -81,7 +92,8 @@ ngx_http_last_modified_header_filter(ngx_http_request_t *r)
         return ngx_http_next_header_filter(r);
     }
 
-    sllc = ngx_http_get_module_loc_conf(r, ngx_http_last_modified_filter_module);
+    sllc = ngx_http_get_module_loc_conf(r,
+                                        ngx_http_last_modified_filter_module);
 
     if (!sllc->enable || !sllc->source) {
         return ngx_http_next_header_filter(r);
@@ -121,30 +133,34 @@ ngx_http_last_modified_header_filter(ngx_http_request_t *r)
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    if (ngx_open_cached_file(clcf->open_file_cache, &path, &of, r->pool) == NGX_OK) {
-        if (of.is_file) {
-            if (r->headers_out.last_modified_time < of.mtime) {
-                r->headers_out.last_modified_time = of.mtime;
-
-                if (!sllc->clear_etag && -1 != of.size) {
-                    off_t prev_size = r->headers_out.content_length_n;
-                    r->headers_out.content_length_n = of.size;
-                    r->headers_out.last_modified_time = of.mtime;
-                    ngx_http_set_etag(r);
-                    r->headers_out.content_length_n = prev_size;
-                }
-            }
-        }
-        else {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "last_modified: %V is not a file", &path);
-        }
+    if (ngx_open_cached_file(clcf->open_file_cache, &path, &of, r->pool)
+        != NGX_OK)
+    {
+        ngx_log_error(NGX_LOG_CRIT, r->connection->log, of.err,
+                      "%s \"%V\" failed", of.failed, &path);
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
-    else {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "last_modified: could not open %V", &path);
+
+    if (!of.is_file) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "last_modified: \"%V\" is not a file", &path);
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    if (r->headers_out.last_modified_time < of.mtime) {
+        r->headers_out.last_modified_time = of.mtime;
+
+        if (!sllc->clear_etag && -1 != of.size) {
+            size = r->headers_out.content_length_n;
+            r->headers_out.content_length_n = of.size;
+            ngx_http_set_etag(r);
+            r->headers_out.content_length_n = size;
+        }
     }
 
     return ngx_http_next_header_filter(r);
 }
+
 
 static void *
 ngx_http_last_modified_filter_create_loc_conf(ngx_conf_t *cf)
@@ -162,8 +178,10 @@ ngx_http_last_modified_filter_create_loc_conf(ngx_conf_t *cf)
     return sllc;
 }
 
+
 static char *
-ngx_http_last_modified_filter_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+ngx_http_last_modified_filter_merge_loc_conf(ngx_conf_t *cf, void *parent,
+    void *child)
 {
     ngx_http_last_modified_loc_conf_t *prev = parent;
     ngx_http_last_modified_loc_conf_t *conf = child;
@@ -176,6 +194,7 @@ ngx_http_last_modified_filter_merge_loc_conf(ngx_conf_t *cf, void *parent, void 
 
     return NGX_CONF_OK;
 }
+
 
 static ngx_int_t
 ngx_http_last_modified_filter_init(ngx_conf_t *cf)
