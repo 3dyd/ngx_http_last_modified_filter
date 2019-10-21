@@ -109,7 +109,7 @@ ngx_http_last_modified_header_filter(ngx_http_request_t *r)
 
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
 
-    path.len = clcf->root.len + uri.len + 1;
+    path.len = clcf->root.len + uri.len;
     path.data = ngx_pnalloc(r->pool, path.len);
     if (path.data == NULL) {
         return NGX_ERROR;
@@ -117,7 +117,6 @@ ngx_http_last_modified_header_filter(ngx_http_request_t *r)
 
     last = ngx_copy(path.data, clcf->root.data, clcf->root.len);
     last = ngx_copy(last, uri.data, uri.len);
-    *last = 0;
 
     ngx_memzero(&of, sizeof(ngx_open_file_info_t));
 
