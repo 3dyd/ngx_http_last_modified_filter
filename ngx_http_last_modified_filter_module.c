@@ -4,8 +4,8 @@
 
 
 typedef struct {
-    ngx_flag_t                          enable;
-    ngx_http_complex_value_t           *source;
+    ngx_flag_t                          override;
+    ngx_http_complex_value_t           *file;
     ngx_flag_t                          clear_etag;
 } ngx_http_last_modified_loc_conf_t;
 
@@ -25,14 +25,14 @@ static ngx_command_t ngx_http_last_modified_commands[] = {
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_last_modified_loc_conf_t, enable),
+      offsetof(ngx_http_last_modified_loc_conf_t, override),
       NULL },
 
-    { ngx_string("last_modified_source"),
+    { ngx_string("last_modified_file"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_http_set_complex_value_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_last_modified_loc_conf_t, source),
+      offsetof(ngx_http_last_modified_loc_conf_t, file),
       NULL },
 
     { ngx_string("last_modified_clear_etag"),
@@ -134,14 +134,14 @@ ngx_http_last_modified_header_filter(ngx_http_request_t *r)
     lmcf = ngx_http_get_module_loc_conf(r,
                                         ngx_http_last_modified_filter_module);
 
-    if (!lmcf->enable) {
+    if (!lmcf->override) {
         return ngx_http_next_header_filter(r);
     }
 
     initial = r->headers_out.last_modified_time;
 
-    if (lmcf->source) {
-        if (ngx_http_complex_value(r, lmcf->source, &uri) != NGX_OK) {
+    if (lmcf->file) {
+        if (ngx_http_complex_value(r, lmcf->file, &uri) != NGX_OK) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
@@ -181,12 +181,11 @@ ngx_http_last_modified_filter_create_loc_conf(ngx_conf_t *cf)
     ngx_http_last_modified_loc_conf_t  *lmcf;
 
     lmcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_last_modified_loc_conf_t));
-    if (lmcf == NULL) {
-        return NULL;
-    }
 
-    lmcf->enable = NGX_CONF_UNSET;
-    lmcf->clear_etag = NGX_CONF_UNSET;
+    if (lmcf != NULL) {
+        lmcf->override = NGX_CONF_UNSET;
+        lmcf->clear_etag = NGX_CONF_UNSET;
+    }
 
     return lmcf;
 }
@@ -199,15 +198,15 @@ ngx_http_last_modified_filter_merge_loc_conf(ngx_conf_t *cf, void *parent,
     ngx_http_last_modified_loc_conf_t *prev = parent;
     ngx_http_last_modified_loc_conf_t *conf = child;
 
-    ngx_conf_merge_value(conf->enable, prev->enable, 0);
+    ngx_conf_merge_value(conf->override, prev->override, 0);
 
-    if (conf->source == NULL) {
-        conf->source = prev->source;
+    if (conf->file == NULL) {
+        conf->file = prev->file;
     }
 
     ngx_conf_merge_value(conf->clear_etag, prev->clear_etag, 1);
 
-    if (conf->enable && !conf->source) {
+    if (conf->file && !conf->file) {
         return "list_modified_override is on but file is not set";
     }
 
