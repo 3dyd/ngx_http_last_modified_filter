@@ -1,5 +1,5 @@
 # ngx_http_last_modified_filter
-NGINX module to override `Last-Modified` and `ETag` response headers using different file as the source.
+NGINX module to override `Last-Modified` and `ETag` response headers using last access time of different files.
 
 ## Directives
 
@@ -14,7 +14,7 @@ NGINX module to override `Last-Modified` and `ETag` response headers using diffe
   </tr>
   <tr>
     <td align="left">Context:</td>
-    <td><code>http, server, location</code></td>
+    <td><code>server, location</code></td>
   </tr>
 </table>
 
@@ -23,7 +23,7 @@ Enables or disables the override of `Last-Modified` and `ETag` headers in respon
 <table>
   <tr>
     <td align="left">Syntax:</td>
-    <td><code><strong>last_modified_source</strong> <i>file</i>;</code></td>
+    <td><code><strong>last_modified_try_files</strong> <i>file ...</i>;</code></td>
   </tr>
   <tr>
     <td align="left">Default:</td>
@@ -31,11 +31,17 @@ Enables or disables the override of `Last-Modified` and `ETag` headers in respon
   </tr>
   <tr>
     <td align="left">Context:</td>
-    <td><code>http, server, location</code></td>
+    <td><code>server, location</code></td>
   </tr>
 </table>
 
-Defines the file whose last access time will be used in `Last-Modified` header. If value there aleady exists, it will be overridden only if it is older.
+Defines files whose last access time should be considered. `Last-Modified` header value is retained if it contains more recent date than the files.
+
+The path to a file is constructed from the file parameter according to the `root` and `alias` directives. Variables can be used.
+
+Contexts are merged. I.e. if you have files in `server` and `location` contexts they all are considered.
+
+By default nonexistent files do not lead to an error processing request. If you want internal server error to be fired if some file does not exist, prepend its path with `!` character.
 
 <table>
   <tr>
@@ -48,7 +54,7 @@ Defines the file whose last access time will be used in `Last-Modified` header. 
   </tr>
   <tr>
     <td align="left">Context:</td>
-    <td><code>http, server, location</code></td>
+    <td><code>server, location</code></td>
   </tr>
 </table>
 
