@@ -17,9 +17,9 @@ typedef struct {
 
 
 typedef struct {
-    ngx_flag_t                          override;
-    ngx_flag_t                          clear_etag;
-    ngx_array_t                        *try_files;
+    ngx_flag_t             override;
+    ngx_flag_t             clear_etag;
+    ngx_array_t           *try_files;
 } ngx_http_last_modified_loc_conf_t;
 
 
@@ -362,6 +362,12 @@ ngx_http_last_modified_filter_create_loc_conf(ngx_conf_t *cf)
         lmcf->override = NGX_CONF_UNSET;
         lmcf->clear_etag = NGX_CONF_UNSET;
     }
+
+    /*
+     * set by ngx_pcalloc():
+     *
+     *     lmcf->try_files = NULL;
+     */
 
     return lmcf;
 }
