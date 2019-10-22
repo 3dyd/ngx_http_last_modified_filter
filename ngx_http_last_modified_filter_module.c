@@ -3,17 +3,21 @@
 #include <ngx_http.h>
 
 
-static ngx_int_t ngx_http_last_modified_filter_init(ngx_conf_t *cf);
+typedef struct {
+    ngx_flag_t                          enable;
+    ngx_http_complex_value_t           *source;
+    ngx_flag_t                          clear_etag;
+} ngx_http_last_modified_loc_conf_t;
+
+
+static ngx_int_t ngx_http_last_modified_try_path(ngx_http_request_t *r,
+    ngx_str_t *path, ngx_open_file_info_t *of);
+static ngx_int_t ngx_http_last_modified_header_filter(ngx_http_request_t *r);
 static void *ngx_http_last_modified_filter_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_last_modified_filter_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
+static ngx_int_t ngx_http_last_modified_filter_init(ngx_conf_t *cf);
 
-
-typedef struct {
-    ngx_flag_t enable;
-    ngx_http_complex_value_t *source;
-    ngx_flag_t clear_etag;
-} ngx_http_last_modified_loc_conf_t;
 
 
 static ngx_command_t ngx_http_last_modified_commands[] = {
@@ -79,75 +83,91 @@ static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
 
 
 static ngx_int_t
+ngx_http_last_modified_try_path(ngx_http_request_t *r, ngx_str_t *path,
+    ngx_open_file_info_t *of)
+{
+    ngx_http_core_loc_conf_t  *clcf;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+    ngx_memzero(of, sizeof(ngx_open_file_info_t));
+
+    of->read_ahead = clcf->read_ahead;
+    of->directio = clcf->directio;
+    of->valid = clcf->open_file_cache_valid;
+    of->min_uses = clcf->open_file_cache_min_uses;
+    of->test_only = 1;
+    of->errors = clcf->open_file_cache_errors;
+    of->events = clcf->open_file_cache_events;
+
+    if (ngx_http_set_disable_symlinks(r, clcf, path, of) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    if (ngx_open_cached_file(clcf->open_file_cache, path, of, r->pool)
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (r->headers_out.last_modified_time < of->mtime) {
+        r->headers_out.last_modified_time = of->mtime;
+    }
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
 ngx_http_last_modified_header_filter(ngx_http_request_t *r)
 {
-    off_t                               size;
-    u_char                             *last;
+    size_t                              root;
+    time_t                              initial;
     ngx_str_t                           uri, path;
     ngx_open_file_info_t                of;
-    ngx_http_core_loc_conf_t           *clcf;
-    ngx_http_last_modified_loc_conf_t  *sllc;
+    ngx_http_last_modified_loc_conf_t  *lmcf;
 
     if (r != r->main || !(r->method & (NGX_HTTP_GET | NGX_HTTP_HEAD))) {
         return ngx_http_next_header_filter(r);
     }
 
-    sllc = ngx_http_get_module_loc_conf(r,
+    lmcf = ngx_http_get_module_loc_conf(r,
                                         ngx_http_last_modified_filter_module);
 
-    if (!sllc->enable || !sllc->source) {
+    if (!lmcf->enable) {
         return ngx_http_next_header_filter(r);
     }
 
-    if (sllc->clear_etag) {
-        ngx_http_clear_etag(r);
+    initial = r->headers_out.last_modified_time;
+
+    if (lmcf->source) {
+        if (ngx_http_complex_value(r, lmcf->source, &uri) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        // Do not tinker with last arg and just reserve maximum possible value
+        if (ngx_http_map_uri_to_path(r, &path, &root, uri.len)
+            == NULL)
+        {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        ngx_memcpy(path.data + root, uri.data, uri.len);
+        path.len = root + uri.len;
+
+        if (ngx_http_last_modified_try_path(r, &path, &of) != NGX_OK) {
+            ngx_log_error(NGX_LOG_CRIT, r->connection->log, of.err,
+                          "%s \"%V\" failed", of.failed, &path);
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
     }
 
-    if (ngx_http_complex_value(r, sllc->source, &uri) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
-    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
-
-    path.len = clcf->root.len + uri.len;
-    path.data = ngx_pnalloc(r->pool, path.len);
-    if (path.data == NULL) {
-        return NGX_ERROR;
-    }
-
-    last = ngx_copy(path.data, clcf->root.data, clcf->root.len);
-    last = ngx_copy(last, uri.data, uri.len);
-
-    ngx_memzero(&of, sizeof(ngx_open_file_info_t));
-
-    of.read_ahead = clcf->read_ahead;
-    of.directio = clcf->directio;
-    of.valid = clcf->open_file_cache_valid;
-    of.min_uses = clcf->open_file_cache_min_uses;
-    of.test_only = 1;
-    of.errors = clcf->open_file_cache_errors;
-    of.events = clcf->open_file_cache_events;
-
-    if (ngx_http_set_disable_symlinks(r, clcf, &path, &of) != NGX_OK) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    if (ngx_open_cached_file(clcf->open_file_cache, &path, &of, r->pool)
-        != NGX_OK)
-    {
-        ngx_log_error(NGX_LOG_CRIT, r->connection->log, of.err,
-                      "%s \"%V\" failed", of.failed, &path);
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    if (r->headers_out.last_modified_time < of.mtime) {
-        r->headers_out.last_modified_time = of.mtime;
-
-        if (!sllc->clear_etag && -1 != of.size) {
-            size = r->headers_out.content_length_n;
-            r->headers_out.content_length_n = of.size;
+    if (r->headers_out.last_modified_time != initial) {
+        if (lmcf->clear_etag) {
+            ngx_http_clear_etag(r);
+        }
+        else {
             ngx_http_set_etag(r);
-            r->headers_out.content_length_n = size;
         }
     }
 
@@ -158,17 +178,17 @@ ngx_http_last_modified_header_filter(ngx_http_request_t *r)
 static void *
 ngx_http_last_modified_filter_create_loc_conf(ngx_conf_t *cf)
 {
-    ngx_http_last_modified_loc_conf_t  *sllc;
+    ngx_http_last_modified_loc_conf_t  *lmcf;
 
-    sllc = ngx_pcalloc(cf->pool, sizeof(ngx_http_last_modified_loc_conf_t));
-    if (sllc == NULL) {
+    lmcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_last_modified_loc_conf_t));
+    if (lmcf == NULL) {
         return NULL;
     }
 
-    sllc->enable = NGX_CONF_UNSET;
-    sllc->clear_etag = NGX_CONF_UNSET;
+    lmcf->enable = NGX_CONF_UNSET;
+    lmcf->clear_etag = NGX_CONF_UNSET;
 
-    return sllc;
+    return lmcf;
 }
 
 
@@ -180,10 +200,16 @@ ngx_http_last_modified_filter_merge_loc_conf(ngx_conf_t *cf, void *parent,
     ngx_http_last_modified_loc_conf_t *conf = child;
 
     ngx_conf_merge_value(conf->enable, prev->enable, 0);
+
     if (conf->source == NULL) {
         conf->source = prev->source;
     }
+
     ngx_conf_merge_value(conf->clear_etag, prev->clear_etag, 1);
+
+    if (conf->enable && !conf->source) {
+        return "list_modified_override is on but file is not set";
+    }
 
     return NGX_CONF_OK;
 }
